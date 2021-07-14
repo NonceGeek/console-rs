@@ -6,7 +6,7 @@ conf/client_config.toml
 Cargo.lock
 *.exe
 *.dll
-*.toml
+# *.toml
 *.a
 *.so
 *.ini 
