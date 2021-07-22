@@ -1,4 +1,5 @@
 use crate::console::App;
+use crate::console::app::InputMode;
 
 use termion::{event::Key, input::MouseTerminal, raw::IntoRawMode, screen::AlternateScreen};
 
@@ -15,6 +16,8 @@ use tui::{
     },
     Frame,
 };
+
+use unicode_width::UnicodeWidthStr;
 
 pub fn draw<B: Backend>(f: &mut Frame<B>, app: &mut App) {
     let chunks = Layout::default()
@@ -37,6 +40,22 @@ pub fn draw<B: Backend>(f: &mut Frame<B>, app: &mut App) {
         2 => draw_third_tab(f, app, chunks[1]),
         _ => {}
     };
+
+    match app.input_mode {
+        InputMode::Normal =>
+            // Hide the cursor. `Frame` does this by default, so we don't need to do anything here
+            {}
+
+        InputMode::Editing => {
+            // Make the cursor visible and ask tui-rs to put it at the specified coordinates after rendering
+            f.set_cursor(
+                // Put cursor past the end of the input text
+                chunks[1].x + app.input.width() as u16 + 1,
+                // Move one line down, from the border to the input line
+                chunks[1].y + 5,
+            )
+        }
+    }
 }
 
 fn draw_first_tab<B>(f: &mut Frame<B>, app: &mut App, area: Rect)
@@ -46,7 +65,7 @@ where
     let chunks = Layout::default()
         .constraints(
             [
-                Constraint::Length(9),
+                Constraint::Length(4),
                 Constraint::Min(8),
                 Constraint::Length(7),
             ]
@@ -54,9 +73,70 @@ where
         )
         .split(area);
     draw_charts(f, app, chunks[0]);
+    draw_main_box(f, app, chunks[1]);
     draw_text(f, chunks[2]);
 }
 
+fn draw_main_box<B>(f: &mut Frame<B>, app: &mut App, area: Rect)
+where
+    B: Backend,
+{
+    let constraints = vec![Constraint::Percentage(100)];
+    let chunks = Layout::default()
+        .constraints(constraints)
+        .direction(Direction::Horizontal)
+        .split(area);
+    // INPUT BOX
+    {
+        let (msg, style) = 
+        {
+            (
+                vec![
+                    Span::raw("Press "),
+                    Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to stop editing, "),
+                    Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to record the message"),
+                ],
+                Style::default(),
+            )
+        };
+        let (msg, style) = match app.input_mode {
+            InputMode::Normal => (
+                vec![
+                    Span::raw("Main@Press "),
+                    Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to exit, "),
+                    Span::styled("e", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to start editing."),
+                ],
+                Style::default().add_modifier(Modifier::RAPID_BLINK),
+            ),
+            InputMode::Editing => (
+                vec![
+                    Span::raw("Main@Press "),
+                    Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to stop editing, "),
+                    Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw(" to record the message"),
+                ],
+                Style::default(),
+            ),
+        };
+        let mut text = Text::from(Spans::from(msg));
+        text.patch_style(style);
+        let help_message = Paragraph::new(text);
+
+        let input = Paragraph::new(app.input.as_ref())
+            .style(match app.input_mode {
+                InputMode::Normal => Style::default(),
+                InputMode::Editing => Style::default().fg(Color::Yellow),
+            })
+            .block(Block::default().borders(Borders::ALL).title("Main"));
+        f.render_widget(input, chunks[0]);
+        f.render_widget(help_message, chunks[0]);
+    }
+}
 fn draw_charts<B>(f: &mut Frame<B>, app: &mut App, area: Rect)
 where
     B: Backend,
@@ -67,9 +147,6 @@ where
         .direction(Direction::Horizontal)
         .split(area);
     {
-        let chunks = Layout::default()
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(chunks[0]);
         {
             let chunks = Layout::default()
                 .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
@@ -101,44 +178,6 @@ where
                 .highlight_style(Style::default().add_modifier(Modifier::BOLD))
                 .highlight_symbol("> ");
             f.render_stateful_widget(contracts, chunks[1], &mut app.contracts.state);
-        }
-
-        // INPUT BOX
-        {
-            let (msg, style) = match app.input_mode {
-                App::InputMode::Normal => (
-                    vec![
-                        Span::raw("Press "),
-                        Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw(" to exit, "),
-                        Span::styled("e", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw(" to start editing."),
-                    ],
-                    Style::default().add_modifier(Modifier::RAPID_BLINK),
-                ),
-                App::InputMode::Editing => (
-                    vec![
-                        Span::raw("Press "),
-                        Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw(" to stop editing, "),
-                        Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
-                        Span::raw(" to record the message"),
-                    ],
-                    Style::default(),
-                ),
-            };
-            let mut text = Text::from(Spans::from(msg));
-            text.patch_style(style);
-            let help_message = Paragraph::new(text);
-            f.render_widget(help_message, chunks[0]);
-        
-            let input = Paragraph::new(app.input.as_ref())
-                .style(match app.input_mode {
-                    App::InputMode::Normal => Style::default(),
-                    App::InputMode::Editing => Style::default().fg(Color::Yellow),
-                })
-                .block(Block::default().borders(Borders::ALL).title("Input"));
-            f.render_widget(input, chunks[1]);
         }
     }
 }
